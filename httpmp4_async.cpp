@@ -4,12 +4,25 @@
 #include <string>
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
+#include <boost/thread.hpp>
+#include <boost/thread/scoped_thread.hpp>
+#include <boost/chrono.hpp>
+#include <thread>
+#include <mutex>
 
 using boost::asio::ip::tcp;
+boost::asio::streambuf response_;
+
+void wait(int seconds)
+{
+    boost::this_thread::sleep_for(boost::chrono::seconds{seconds});
+}
 
 class client
 {
     public:
+
+
         client(boost::asio::io_service& io_service,
                 const std::string& server, const std::string& path)
             : resolver_(io_service),
@@ -34,6 +47,111 @@ class client
     }
 
     private:
+
+        void thread_handle_response_body()
+        {
+            unsigned char boxsizeStr[4];
+            char boxtypeStr[5];     
+            unsigned long boxsize; 
+
+            while(1) {
+                mtx.lock();
+                if ( response_.size() < 8 ) {
+                    mtx.unlock();
+                    wait(1);
+                    continue;
+                } else {
+                    // 1. box size and type
+                    std::cout << "response size = " << response_.size() << std::endl;
+                    response_.sgetn( (char*)boxsizeStr, 4);
+                    response_.sgetn( (char*)boxtypeStr, 4);
+                    boxtypeStr[4] = '\000';
+                    boxsize = ((unsigned int)boxsizeStr[0]<<24) + 
+                        ((unsigned int)boxsizeStr[1]<<16) + 
+                        ((unsigned int)boxsizeStr[2]<<8) + 
+                        (unsigned int)boxsizeStr[3];
+                    std::cout << "box size = " << boxsize << " type = " << boxtypeStr << std::endl;
+                    std::cout << "response size (after box) = " << response_.size() << std::endl;
+
+                    if ( !strcmp(boxtypeStr, "moof") || 
+                            !strcmp(boxtypeStr, "traf") ) {
+                        std::cout << "Found box of type " << boxtypeStr 
+                            << " and size " << boxsize << std::endl;
+                        mtx.unlock();
+                        continue;
+                    }
+
+                    if ( !strcmp(boxtypeStr, "mfhd") ||
+                            !strcmp(boxtypeStr, "tfhd") ||
+                            !strcmp(boxtypeStr, "trun") ||
+                            !strcmp(boxtypeStr, "uuid") ||
+                            !strcmp(boxtypeStr, "mdat") ) {
+                        std::cout << "Found box of type " << boxtypeStr 
+                            << " and size " << boxsize << std::endl;
+                    }
+
+                    char * boxBodyBuffer;
+                    long boxBodySize = boxsize-8;
+                    long availableSize = response_.size();
+                    long consumedSize = 0;
+
+                    if ( !strcmp(boxtypeStr, "mdat") ) {
+                        std::cout << "Content of mdat box is: " << std::endl;
+                    }
+
+                    // 2. consume the box body content until it's finished
+                    while ( consumedSize+availableSize <= boxBodySize ) {
+                        boxBodyBuffer = new char [availableSize+1];
+                        if ( boxBodyBuffer == NULL ) {
+                            printf("Error: memory allocation failed (%s, %d)", 
+                                    __FILE__, __LINE__);
+                            // throw an error and exit
+                            mtx.unlock();
+                            return;
+                        }
+                        response_.sgetn( boxBodyBuffer, availableSize );
+                        boxBodyBuffer[availableSize] = '\000';
+                        if ( !strcmp(boxtypeStr, "mdat") ) {
+                            std::cout << boxBodyBuffer << std::endl;
+                        }
+                        consumedSize += availableSize;
+                        delete [] boxBodyBuffer;
+                        mtx.unlock();
+                        wait(1);
+                        mtx.lock();
+                        availableSize = response_.size();
+
+                        // extra
+                        if (availableSize == 0 ) {
+                            mtx.unlock();
+                            wait(10);
+                            mtx.lock();
+                        }
+                    }
+
+                    if ( (consumedSize < boxBodySize) && 
+                            (consumedSize+availableSize > boxBodySize) ) {
+                        boxBodyBuffer = new char [boxBodySize-consumedSize+1];
+                        if ( boxBodyBuffer == NULL ) {
+                            printf("Error: memory allocation failed (%s, %d)", 
+                                    __FILE__, __LINE__);
+                            // throw an error and exit
+                            mtx.unlock();
+                            return;
+                        }
+                        response_.sgetn( boxBodyBuffer, boxBodySize-consumedSize );
+                        boxBodyBuffer[boxBodySize-consumedSize] = '\000';
+                        if ( !strcmp(boxtypeStr, "mdat") ) {
+                            std::cout << boxBodyBuffer << std::endl;
+                        }
+                        delete [] boxBodyBuffer;
+                    }
+                    // we have finished handling the box body content here.
+                }
+                mtx.unlock();
+            }
+        }
+
         void handle_resolve(const boost::system::error_code& err,
                 tcp::resolver::iterator endpoint_iterator)
         {
@@ -131,9 +249,15 @@ class client
                 }
                 // std::cout << "\n";
 
-                // Write whatever content we already have to output.
-                if (response_.size() > 0)
+                // RESPONSE BODY
+#if 0
+                if (response_.size() > 0) {
                     std::cout << &response_;
+                }
+#endif
+
+                // We start another thread to consume the response body from here
+                boost::scoped_thread<> t{boost::thread{&client::thread_handle_response_body, this}}; // leo
 
                 // Start reading remaining data until EOF.
                 boost::asio::async_read(socket_, response_,
@@ -148,12 +272,15 @@ class client
         }
 
         void handle_read_content(const boost::system::error_code& err)
-         {
+        {
+            std::cout << "handle_read_content is called!!!!" << std::endl;
             if (!err)
             {
-                // Write all of the data that has been read so far.
-                std::cout << &response_;
-
+#if 0
+                if (response_.size() > 0) {
+                    std::cout << &response_;
+                }
+#endif
                 // Continue reading remaining data until EOF.
                 boost::asio::async_read(socket_, response_,
                         boost::asio::transfer_at_least(1),
@@ -169,11 +296,16 @@ class client
         tcp::resolver resolver_;
         tcp::socket socket_;
         boost::asio::streambuf request_;
-        boost::asio::streambuf response_;
+        //boost::asio::streambuf response_;
+        std::mutex mtx;
 };
+
+
 
 int main(int argc, char* argv[])
 {
+    std::istream is(&response_);
+
     try
     {
         if (argc != 3)
