@@ -45,6 +45,14 @@ class client
                     boost::asio::placeholders::iterator));
     }
 
+        bool getResponseDone() { return responseDone; }
+        void setResponseDone(bool flag) 
+        { 
+            mtx.lock();
+            responseDone=flag; 
+            mtx.unlock();
+        }
+
     private:
 
         void thread_handle_response_body()
@@ -58,7 +66,11 @@ class client
                 if ( response_.size() < 8 ) {
                     mtx.unlock();
                     wait(1);
-                    continue;
+                    if ( getResponseDone() ) {
+                        break;
+                    } else {
+                        continue;
+                    }
                 } else {
                     // 1. box size and type
                     //std::cout << "response size = " << response_.size() << std::endl;
@@ -111,7 +123,6 @@ class client
                         response_.sgetn( boxBodyBuffer, availableSize );
                         boxBodyBuffer[availableSize] = '\000';
                         if ( !strcmp(boxtypeStr, "mdat") ) {
-                            std::cout << "mdat out -- " << availableSize << std::endl;
                             std::cout << boxBodyBuffer << std::endl;
                         }
                         consumedSize += availableSize;
@@ -134,12 +145,11 @@ class client
                         response_.sgetn( boxBodyBuffer, boxBodySize-consumedSize );
                         boxBodyBuffer[boxBodySize-consumedSize] = '\000';
                         if ( !strcmp(boxtypeStr, "mdat") ) {
-                            std::cout << "mdat out -- " << availableSize << std::endl;
                             std::cout << boxBodyBuffer << std::endl;
                         }
                         delete [] boxBodyBuffer;
                     }
-                    std::cout << " we have finished handling the box body content here." << std::endl;
+                    //std::cout << " we have finished handling the box body content here." << std::endl;
                 }
                 mtx.unlock();
             }
@@ -216,6 +226,8 @@ class client
                     std::cout << "Response returned with status code ";
                     std::cout << status_code << "\n";
                     return;
+                } else {
+                    std::cout << "Successfully loaded file " <<
                 }
 
                 // Read the response headers, which are terminated by a blank line.
@@ -269,7 +281,6 @@ class client
         void handle_read_content(const boost::system::error_code& err)
         {
             mtx.lock();
-            std::cout << "handle_read_content is called!!!!" << std::endl;
             if (!err)
             {
 #if 0
@@ -294,6 +305,7 @@ class client
         tcp::socket socket_;
         boost::asio::streambuf request_;
         boost::asio::streambuf response_;
+        bool responseDone=false;
         std::mutex mtx;
 };
 
@@ -315,7 +327,8 @@ int main(int argc, char* argv[])
         client c(io_service, argv[1], argv[2]);
         io_service.run();
 
-        //t->interrupt(); // interrupt the thread when response has all been received. 
+        c.setResponseDone(true);
+
         t->join();
         delete t;
     }
