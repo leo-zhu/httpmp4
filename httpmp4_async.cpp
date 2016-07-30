@@ -7,6 +7,7 @@
 #include <boost/thread.hpp>
 #include <boost/thread/scoped_thread.hpp>
 #include <boost/chrono.hpp>
+#include <boost/regex.hpp>
 #include <thread>
 #include <mutex>
 
@@ -23,10 +24,26 @@ class client
 {
     public:
         client(boost::asio::io_service& io_service,
-                const std::string& server, const std::string& path)
+                const std::string& inputurl)
             : resolver_(io_service),
             socket_(io_service)
     {
+        std::string protocol, server, path;
+
+        // parse URL
+        url = inputurl;
+        boost::regex ex("(http|https)://([^/ :]+):?([^/ ]*)(/?[^ #?]*)\\x3f?([^ #]*)#?([^ ]*)");
+        boost::cmatch what;
+        if(regex_match(url.c_str(), what, ex)) 
+        {
+            protocol = std::string(what[1].first, what[1].second);
+            server = std::string(what[2].first, what[2].second);
+            path = std::string(what[4].first, what[4].second);
+        } else {
+            std::cout << "Error: URL format error." << std::endl;
+            return;
+        }
+
         // Specify "Connection: close" in request header so that the server will 
         // close the socket after transmitting the response. This will
         // allow us to treat all data up until the EOF as the content.
@@ -38,7 +55,7 @@ class client
 
         // Start an asynchronous resolve to translate the server and service names
         // into a list of endpoints.
-        tcp::resolver::query query(server, "http");
+        tcp::resolver::query query(server, protocol.c_str());
         resolver_.async_resolve(query,
                 boost::bind(&client::handle_resolve, this,
                     boost::asio::placeholders::error,
@@ -227,7 +244,7 @@ class client
                     std::cout << status_code << "\n";
                     return;
                 } else {
-                    std::cout << "Successfully loaded file " <<
+                    std::cout << "Successfully loaded file " << url << std::endl;
                 }
 
                 // Read the response headers, which are terminated by a blank line.
@@ -301,6 +318,7 @@ class client
             mtx.unlock();
         }
 
+        std::string url;
         tcp::resolver resolver_;
         tcp::socket socket_;
         boost::asio::streambuf request_;
@@ -313,18 +331,18 @@ class client
 
 int main(int argc, char* argv[])
 {
+    if (argc != 2)
+    {
+        std::cout << "Usage: " << argv[0] << " <URL>" << std::endl;
+        std::cout << "Example:" << std::endl;
+        std::cout << "  " << argv[0] << " http://demo.castlabs.com/tmp/text.mp4" << std::endl;
+        return 1;
+    }
+
     try
     {
-        if (argc != 3)
-        {
-            std::cout << "Usage: " << argv[0] << " <server> <path>" << std::endl;
-            std::cout << "Example:" << std::endl;
-            std::cout << "  " << argv[0] << " demo.castlabs.com /tmp/text.mp4" << std::endl;
-            return 1;
-        }
-
         boost::asio::io_service io_service;
-        client c(io_service, argv[1], argv[2]);
+        client c(io_service, argv[1]);
         io_service.run();
 
         c.setResponseDone(true);
