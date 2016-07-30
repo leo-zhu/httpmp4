@@ -11,7 +11,6 @@
 #include <mutex>
 
 using boost::asio::ip::tcp;
-boost::asio::streambuf response_;
 
 void wait(int seconds)
 {
@@ -21,8 +20,6 @@ void wait(int seconds)
 class client
 {
     public:
-
-
         client(boost::asio::io_service& io_service,
                 const std::string& server, const std::string& path)
             : resolver_(io_service),
@@ -296,7 +293,7 @@ class client
         tcp::resolver resolver_;
         tcp::socket socket_;
         boost::asio::streambuf request_;
-        //boost::asio::streambuf response_;
+        boost::asio::streambuf response_;
         std::mutex mtx;
 };
 
@@ -304,8 +301,6 @@ class client
 
 int main(int argc, char* argv[])
 {
-    std::istream is(&response_);
-
     try
     {
         if (argc != 3)
