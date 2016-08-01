@@ -1,19 +1,49 @@
 #include <iostream>
 #include <istream>
 #include <ostream>
+#include <sstream>
 #include <string>
+#include <thread>
+#include <mutex>
+
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/thread.hpp>
 #include <boost/thread/scoped_thread.hpp>
 #include <boost/chrono.hpp>
 #include <boost/regex.hpp>
-#include <thread>
-#include <mutex>
+#include <boost/date_time/posix_time/posix_time.hpp>
+
 
 using boost::asio::ip::tcp;
+using namespace boost::posix_time;
 
 boost::thread *t;
+
+std::string dateTime()
+{
+    ptime now(microsec_clock::local_time());
+
+    std::string dt = to_iso_string(now);
+    std::stringstream ret;
+    ret << dt.substr(0,4) << "-" 
+        << dt.substr(4,2) << "-"
+        << dt.substr(6,2) << " "
+        << dt.substr(9,2) << ":"
+        << dt.substr(11,2) << ":"
+        << dt.substr(13,2) << "."
+        << dt.substr(16,3) << " ";
+    //std::cout << ret.str() << std::endl;
+
+    //static std::locale loc(std::wcout.getloc(), new wtime_facet(L"%Y-%m-%d %H:%M:%S.%f"));
+    //std::basic_stringstream<wchar_t> wss;
+    //wss.imbue(loc);
+    //wss << now;
+    //std::wcout << wss.str() << std::endl;
+
+    return ret.str();
+
+}
 
 void wait(int seconds)
 {
@@ -40,7 +70,7 @@ class client
             server = std::string(what[2].first, what[2].second);
             path = std::string(what[4].first, what[4].second);
         } else {
-            std::cout << "Error: URL format error." << std::endl;
+            std::cout << dateTime() << "Error: URL format error." << std::endl;
             return;
         }
 
@@ -103,7 +133,7 @@ class client
 
                     if ( !strcmp(boxtypeStr, "moof") || 
                             !strcmp(boxtypeStr, "traf") ) {
-                        std::cout << "Found box of type " << boxtypeStr 
+                        std::cout << dateTime() << "Found box of type " << boxtypeStr 
                             << " and size " << boxsize << std::endl;
                         mtx.unlock();
                         continue;
@@ -114,7 +144,7 @@ class client
                             !strcmp(boxtypeStr, "trun") ||
                             !strcmp(boxtypeStr, "uuid") ||
                             !strcmp(boxtypeStr, "mdat") ) {
-                        std::cout << "Found box of type " << boxtypeStr 
+                        std::cout << dateTime() << "Found box of type " << boxtypeStr 
                             << " and size " << boxsize << std::endl;
                     }
 
@@ -124,7 +154,7 @@ class client
                     long consumedSize = 0;
 
                     if ( !strcmp(boxtypeStr, "mdat") ) {
-                        std::cout << "Content of mdat box is: " << std::endl;
+                        std::cout << dateTime() << "Content of mdat box is: ";
                     }
 
                     // 2. consume the box body content until it's finished
@@ -166,7 +196,7 @@ class client
                         }
                         delete [] boxBodyBuffer;
                     }
-                    //std::cout << " we have finished handling the box body content here." << std::endl;
+                    // We have finished handling the box body content here.
                 }
                 mtx.unlock();
             }
@@ -185,7 +215,7 @@ class client
             }
             else
             {
-                std::cout << "Error: " << err.message() << "\n";
+                std::cout << dateTime() << "Error: " << err.message() << "\n";
             }
         }
 
@@ -200,7 +230,7 @@ class client
             }
             else
             {
-                std::cout << "Error: " << err.message() << "\n";
+                std::cout  << dateTime() << "Error: " << err.message() << "\n";
             }
         }
 
@@ -217,7 +247,7 @@ class client
             }
             else
             {
-                std::cout << "Error: " << err.message() << "\n";
+                std::cout << dateTime() << "Error: " << err.message() << "\n";
             }
         }
 
@@ -235,16 +265,16 @@ class client
                 std::getline(response_stream, status_message);
                 if (!response_stream || http_version.substr(0, 5) != "HTTP/")
                 {
-                    std::cout << "Invalid response\n";
+                    std::cout << dateTime() << "Invalid response\n";
                     return;
                 }
                 if (status_code != 200)
                 {
-                    std::cout << "Response returned with status code ";
+                    std::cout << dateTime() << "Response returned with status code ";
                     std::cout << status_code << "\n";
                     return;
                 } else {
-                    std::cout << "Successfully loaded file " << url << std::endl;
+                    std::cout << dateTime() << "Successfully loaded file " << url << std::endl;
                 }
 
                 // Read the response headers, which are terminated by a blank line.
@@ -254,7 +284,7 @@ class client
             }
             else
             {
-                std::cout << "Error: " << err << "\n";
+                std::cout << dateTime() << "Error: " << err << "\n";
             }
         }
 
@@ -291,7 +321,7 @@ class client
             }
             else
             {
-                std::cout << "Error: " << err << "\n";
+                std::cout << dateTime() << "Error: " << err << "\n";
             }
         }
 
@@ -313,7 +343,7 @@ class client
             }
             else if (err != boost::asio::error::eof)
             {
-                std::cout << "Error: " << err << "\n";
+                std::cout << dateTime() << "Error: " << err << "\n";
             }
             mtx.unlock();
         }
@@ -326,7 +356,6 @@ class client
         bool responseDone=false;
         std::mutex mtx;
 };
-
 
 
 int main(int argc, char* argv[])
@@ -352,8 +381,9 @@ int main(int argc, char* argv[])
     }
     catch (std::exception& e)
     {
-        std::cout << "Exception: " << e.what() << "\n";
+        std::cout << dateTime() << "Exception: " << e.what() << "\n";
     }
+
 
     return 0;
 }
